@@ -4,7 +4,7 @@
     {
         public string Name { get; set; }
         public MnemonicFormat[] Format { get; set; } = {MnemonicFormat.NotApplicable};
-        public byte OpCode { get; set; } = 0x00;
+        public string OpCode { get; set; } = "00";
 
         public override string ToString()
             => Name;

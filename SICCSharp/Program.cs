@@ -19,9 +19,10 @@ namespace SICCSharp
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Verbose()
                 .Enrich.FromLogContext()
-                .WriteTo.Console(theme: AnsiConsoleTheme.Code,outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level}] [{Method}] {Message}{NewLine}")
+                .WriteTo.Console(theme: AnsiConsoleTheme.Code,
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level}] [{Method}] {Message}{NewLine}")
                 .CreateLogger();
-            CompileHelper.CompileAsync("C:\\Users\\34146\\source\\repos\\SICC.Sharp\\SICCSharp.Test\\source.asm", null)
+            CompileHelper.CompileAsync("C:\\Users\\34146\\source\\repos\\SICC.Sharp\\SICCSharp.Test\\source2.asm", null)
                 .GetAwaiter().GetResult();
             Console.ReadKey();
         }
@@ -29,16 +30,18 @@ namespace SICCSharp
 
     public static class CompileHelper
     {
-        private static string GetMethodName([CallerMemberName]string name = null) => name;
         private static char[] Delimiter
             => new[] {'\u0009', ' '};
+
+        private static string GetMethodName([CallerMemberName] string name = null)
+            => name;
 
         public static async Task CompileAsync(string input, string output)
         {
             using (var inputStream = new FileStream(input, FileMode.Open, FileAccess.Read, FileShare.Read, 1024,
                 FileOptions.Asynchronous))
             using (var inputFile = new StreamReader(inputStream))
-                using (LogContext.PushProperty("Method", GetMethodName()))
+            using (LogContext.PushProperty("Method", GetMethodName()))
             {
                 Log.Verbose($"Loaded file {input}!");
 
@@ -47,7 +50,7 @@ namespace SICCSharp
                 string baseMemory = null;
                 var memoryBufferHex = -1;
                 var locationBufferHex = -1;
-                List<Instruction> instructionList = new List<Instruction>();
+                var instructionList = new List<Instruction>();
                 while (!string.IsNullOrEmpty(line = await inputFile.ReadLineAsync()))
                 {
                     // check if base memory was found and set
@@ -71,7 +74,7 @@ namespace SICCSharp
                     else
                     {
                         var instructionParameter = int.TryParse((string) instruction.Parameter, out var instructionInt)
-                            ? (int?)instructionInt
+                            ? (int?) instructionInt
                             : null;
 
                         var locationOffset =
@@ -80,43 +83,106 @@ namespace SICCSharp
                         locationBufferHex = int.Parse(locationOffset, NumberStyles.HexNumber);
                         instruction.MemoryLocation = baseMemory;
                     }
-                    
+
                     instruction.LineCount = lineCounter;
                     instructionList.Add(instruction);
                     lineCounter++;
                 }
 
+                // print SYMTAB
+                Log.Information("SYMTAB (Symbol Table)");
+                var symTab = instructionList.Where(x
+                    => MnemonicList.DeclarationInstructions.Any(d => d.Name == x.Mnemonic.Name)).ToList();
+                foreach (var instruction in symTab)
+                    Log.Information("{MemoryLocation} - {Label} - {Parameter}", instruction.MemoryLocation,
+                        instruction.Label, instruction.Parameter);
+
                 // compile obj code
                 foreach (var instruction in instructionList)
                 {
                     // ignore if it's one of the whitelisted instructions
-                    if (MnemonicList.InstructionWhitelist.Any(x=>x == instruction.Mnemonic.Name)) continue;
-                }
+                    if (MnemonicList.InstructionWhitelist.Any(x => x == instruction.Mnemonic.Name)) continue;
+                    var instructionParameter = (string) instruction.Parameter;
+                    var splitParameter = instructionParameter?.Split(',');
+                    // indexed mode
+                    if (splitParameter?.Length > 1)
+                    {
+                        var targetVariable = splitParameter[0];
+                        var variableInstruction = symTab.FirstOrDefault(x => x.Label == targetVariable);
+                        if (variableInstruction == null)
+                        {
+                            Log.Warning(
+                                "Cannot find equivalent variable in SYMTAB for instruction {Name} on line {LineCount}",
+                                instruction.Mnemonic.Name, instruction.LineCount);
+                        }
+                        else
+                        {
+                            var charArray = CalculateOpCodeBitArray(variableInstruction.MemoryLocation);
+                            charArray[0] = '1';
+                            var charArrayString = new string(charArray);
+                            var targetAddress = Convert.ToInt32(charArrayString, 2).ToString("X");
+                            instruction.OpCode = instruction.Mnemonic.OpCode + targetAddress;
+                        }
+                    }
+                    // direct mode
+                    else
+                    {
+                        Instruction targetVariable = null;
+                        if (instructionParameter != null)
+                        {
+                            targetVariable = instructionList.FirstOrDefault(x => x.Label == instructionParameter);
+                            if (instruction.Mnemonic.Name == "WORD")
+                            {
+                                instruction.OpCode = instructionParameter.PadLeft(6,'0');
+                                continue;
+                            }
 
-                // print SYMTAB
-                Log.Information("SYMTAB (Symbol Table)");
-                foreach (var instruction in instructionList.Where(x=>MnemonicList.DeclarationInstructions.Any(d=>d.Name == x.Mnemonic.Name)))
-                {
-                    Log.Information("{MemoryLocation} - {Label} - {Parameter}", instruction.MemoryLocation,
-                        instruction.Label, instruction.Parameter);
+                            if (targetVariable == null)
+                            {
+                                Log.Warning(
+                                    "Cannot find equivalent variable in SYMTAB for instruction {Name} on line {LineCount}",
+                                    instruction.Mnemonic.Name, instruction.LineCount);
+                                continue;
+                            }
+                        }
+                        instruction.OpCode = (instruction.Mnemonic.OpCode + targetVariable?.MemoryLocation).PadRight(6,'0');
+                    }
                 }
 
                 // print overall
                 var summaryBuilder = new StringBuilder(Environment.NewLine)
-                    .AppendLine("|LINE|\u0009|LOC|\u0009|LAB|\u0009|INST|\u0009|PARAM|");
+                    .AppendLine("|LINE|\u0009|LOC|\u0009|LAB|\u0009|INST|\u0009|PARAM|\u0009|OPCODE|");
                 foreach (var instruction in instructionList)
                 {
                     summaryBuilder.Append($"{instruction.LineCount:D6}:\u0009");
                     summaryBuilder.Append(MnemonicList.InstructionWhitelist.All(x => x != instruction.Mnemonic.Name)
                         ? instruction.MemoryLocation
                         : "----");
-                    if (!string.IsNullOrEmpty(instruction.Label)) summaryBuilder.Append($"\u0009{instruction.Label}");
-                    if (!string.IsNullOrEmpty(instruction.Mnemonic.Name)) summaryBuilder.Append($"\u0009{instruction.Mnemonic}");
-                    if (!string.IsNullOrEmpty((string)instruction.Parameter)) summaryBuilder.Append($"\u0009{instruction.Parameter}");
+                    summaryBuilder.Append(!string.IsNullOrEmpty(instruction.Label)
+                        ? $"\u0009{instruction.Label}"
+                        : "\u0009");
+                    summaryBuilder.Append(!string.IsNullOrEmpty(instruction.Mnemonic.Name)
+                        ? $"\u0009{instruction.Mnemonic}"
+                        : "\u0009");
+                    summaryBuilder.Append(!string.IsNullOrEmpty((string) instruction.Parameter)
+                        ? $"\u0009{instruction.Parameter}"
+                        : "\u0009");
+                    summaryBuilder.Append(!string.IsNullOrEmpty(instruction.OpCode)
+                        ? $"\u0009{instruction.OpCode}"
+                        : "\u0009");
                     summaryBuilder.AppendLine();
                 }
+
                 Log.Information(summaryBuilder.ToString());
             }
+        }
+
+
+        public static char[] CalculateOpCodeBitArray(string opCode)
+        {
+            var binString = string.Join("",
+                opCode.Select(c => Convert.ToString(Convert.ToInt32(c.ToString(), 16), 2).PadLeft(4, '0')));
+            return binString.ToCharArray();
         }
 
         public static string CalculateLocationOffset(string instructionName, int? parameter = null)
@@ -151,7 +217,9 @@ namespace SICCSharp
                 {
                     // assume a non-standard instruction (no byte specification)
                     case 1:
-                        instruction = new Instruction {Mnemonic = new Mnemonic {Name = rawInstruction[0]}};
+                        instructionName = rawInstruction[0];
+                        mnemonic = GetMnemonic(instructionName);
+                        instruction = new Instruction {Mnemonic = mnemonic};
                         break;
                     // assume standard instruction
                     case 2:
