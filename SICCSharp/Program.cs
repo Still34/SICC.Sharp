@@ -22,7 +22,7 @@ namespace SICCSharp
                 .WriteTo.Console(theme: AnsiConsoleTheme.Code,
                     outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level}] [{Method}] {Message}{NewLine}")
                 .CreateLogger();
-            CompileHelper.CompileAsync("C:\\Users\\34146\\source\\repos\\SICC.Sharp\\SICCSharp.Test\\source2.asm", null)
+            CompileHelper.CompileAsync("C:\\Users\\34146\\source\\repos\\SICC.Sharp\\SICCSharp.Test\\source.asm", null)
                 .GetAwaiter().GetResult();
             Console.ReadKey();
         }
