@@ -4,12 +4,6 @@ namespace SICCSharp
 {
     public static class MnemonicList
     {
-        public static IReadOnlyCollection<Mnemonic> VariableDeclaration = new Mnemonic[]
-        {
-            new Mnemonic{Name = "WORD", Format = new MnemonicFormat[]{MnemonicFormat.NotApplicable}, OpCode = 0x00, },
-            new Mnemonic{Name = "RESW", Format = new MnemonicFormat[]{MnemonicFormat.NotApplicable}, OpCode = 0x00, },
-            new Mnemonic{Name = "RESB", Format = new MnemonicFormat[]{MnemonicFormat.NotApplicable}, OpCode = 0x00, },
-        };
         public static IReadOnlyCollection<Mnemonic> Instructions = new []
         {
             new Mnemonic{Name = "ADD",  Format = new []{MnemonicFormat.ThreeBytes, MnemonicFormat.FourBytes}, OpCode = 0x18},
@@ -72,5 +66,16 @@ namespace SICCSharp
             new Mnemonic{Name = "TIXR", Format = new []{MnemonicFormat.TwoBytes}, OpCode = 0xB8}, 
             new Mnemonic{Name = "WD", Format = new []{MnemonicFormat.ThreeBytes, MnemonicFormat.FourBytes}, OpCode = 0xDC}, 
         };
+
+        public static string[] InstructionWhitelist
+            => new[] {"START", "END"};
+
+        public static IReadOnlyCollection<Mnemonic> DeclarationInstructions
+            => new[]
+            {
+                new Mnemonic{Name = "RESW"}, 
+                new Mnemonic{Name = "RESB"}, 
+                new Mnemonic{Name = "WORD"}, 
+            };
     }
 }

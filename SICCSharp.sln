@@ -3,9 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.28307.168
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SICCSharp", "SICCSharp\SICCSharp.csproj", "{3C0F4F91-5148-44F2-89B3-9042137D0520}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SICCSharp", "SICCSharp\SICCSharp.csproj", "{3C0F4F91-5148-44F2-89B3-9042137D0520}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SICCSharp.Test", "SICCSharp.Test\SICCSharp.Test.csproj", "{A5000A5B-112F-49DB-AEE0-5433DF7D133A}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SICCSharp.Test", "SICCSharp.Test\SICCSharp.Test.csproj", "{A5000A5B-112F-49DB-AEE0-5433DF7D133A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
