@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Globalization;
 using System.Linq;
+using SICCSharp.Entities;
 
 namespace SICCSharp.Extensions
 {
@@ -12,17 +13,18 @@ namespace SICCSharp.Extensions
         public static char[] CalculateOpCodeBitArray(string opCode) => String.Join("",
             opCode.Select(c => Convert.ToString(Convert.ToInt32(c.ToString(), 16), 2).PadLeft(4, '0'))).ToArray();
 
-        public static string CalculateLocationOffset(string instructionName, int? parameter = null)
+        public static string CalculateLocationOffset(Instruction instruction)
         {
-            switch (instructionName)
+            if (instruction.Parameter == null || !int.TryParse((string) instruction.Parameter, out var instructionInt)) return "3";
+            switch (instruction.Mnemonic.Name)
             {
-                case "START":
-                case "END":
+                case var n when n == MnemonicList.StartInstruction.Name:
+                case var e when e == MnemonicList.EndInstruction.Name:
                     return "0";
                 case "RESW":
-                    return parameter != null ? (3 * parameter.Value).ToString("X") : "0";
+                    return (3 * instructionInt).ToString("X");
                 case "RESB":
-                    return parameter != null ? parameter.Value.ToString("X") : "0";
+                    return instructionInt.ToString("X");
                 default:
                     return "3";
             }
