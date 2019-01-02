@@ -9,13 +9,13 @@ namespace SICCSharp.Test
         [Fact]
         public void CalculateLocationOffset()
         {
-            var wordOffset = SICCSharp.CompileHelper.CalculateLocationOffset("WORD");
+            var wordOffset = SICCSharp.MathHelper.CalculateLocationOffset("WORD");
             Assert.Equal(3, wordOffset);
-            var LDXOffset = CompileHelper.CalculateLocationOffset("LDX");
+            var LDXOffset = MathHelper.CalculateLocationOffset("LDX");
             Assert.Equal(3, LDXOffset);
-            var RESWOffet = CompileHelper.CalculateLocationOffset("RESW", 100);
+            var RESWOffet = MathHelper.CalculateLocationOffset("RESW", 100);
             Assert.Equal(300, RESWOffet);
-            var RESBOffset = CompileHelper.CalculateLocationOffset("RESB", 100);
+            var RESBOffset = MathHelper.CalculateLocationOffset("RESB", 100);
             Assert.Equal(100, RESBOffset);
         }
     }
