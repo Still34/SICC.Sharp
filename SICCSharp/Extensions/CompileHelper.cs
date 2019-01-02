@@ -15,23 +15,35 @@ namespace SICCSharp.Extensions
 {
     public static class CompileHelper
     {
+        /// <summary>
+        ///     Gets the unicode representation of the tab character.
+        /// </summary>
         private const char TabChar = '\u0009';
 
-        private static char[] Delimiter
+        /// <summary>
+        ///     Gets the pre-defined delimiters used to split instruction entries within the line.
+        /// </summary>
+        private static char[] Delimiters
             => new[] {TabChar, ' '};
 
+        /// <summary>
+        ///     Gets the method name that called this method. Used for Serilog logging.
+        /// </summary>
         private static string GetMethodName([CallerMemberName] string name = null)
             => name;
 
+        /// <summary>
+        ///     Starts compilation process for SIC ASM files.
+        /// </summary>
+        /// <param name="input">The input filepath. Must include absolute full path including filename.</param>
+        /// <param name="output">The output filepath. Must be an absolute path.</param>
         public static async Task CompileAsync(string input, string output)
         {
             using (var inputStream = new FileStream(input, FileMode.Open, FileAccess.Read, FileShare.Read, 128,
-                FileOptions.Asynchronous))
+                FileOptions.Asynchronous | FileOptions.RandomAccess))
             using (var inputFile = new StreamReader(inputStream))
             using (LogContext.PushProperty("Method", GetMethodName()))
             {
-                Log.Verbose($"Loaded file {input}...");
-
                 string line;
                 var lineCounter = 1;
                 string baseMemory = null;
@@ -50,7 +62,7 @@ namespace SICCSharp.Extensions
                     var instruction = ParseInstructions(line);
 
                     // memory location calculation
-                    if (instruction.Mnemonic.Name == "START")
+                    if (instruction.Mnemonic.Name == MnemonicList.StartInstruction.Name)
                         baseMemory = instruction.MemoryLocation;
                     // check if baseMemory is set; otherwise assume 0
                     if (baseMemory == null)
@@ -61,12 +73,7 @@ namespace SICCSharp.Extensions
                     // if baseMemory is set, get current line's memory and location increment as buffer for next line to add
                     else
                     {
-                        var instructionParameter = int.TryParse((string) instruction.Parameter, out var instructionInt)
-                            ? (int?) instructionInt
-                            : null;
-
-                        var locationOffset =
-                            MathHelper.CalculateLocationOffset(instruction.Mnemonic.Name, instructionParameter);
+                        var locationOffset = MathHelper.CalculateLocationOffset(instruction);
                         memoryBufferHex = int.Parse(baseMemory, NumberStyles.HexNumber);
                         locationBufferHex = int.Parse(locationOffset, NumberStyles.HexNumber);
                         instruction.MemoryLocation = baseMemory;
@@ -78,10 +85,10 @@ namespace SICCSharp.Extensions
                 }
 
                 // print SYMTAB
-                Log.Information("SYMTAB (Symbol Table)");
+                Log.Verbose("SYMTAB (Symbol Table)");
                 var symTab = GetSymbolInstructions(instructionList);
                 foreach (var instruction in symTab)
-                    Log.Information("{MemoryLocation} - {Label} - {Parameter}", instruction.MemoryLocation,
+                    Log.Verbose("{MemoryLocation} - {Label} - {Parameter}", instruction.MemoryLocation,
                         instruction.Label, instruction.Parameter);
 
                 // Second pass
@@ -89,7 +96,7 @@ namespace SICCSharp.Extensions
                 foreach (var instruction in instructionList)
                 {
                     // ignore if it's one of the whitelisted instructions
-                    if (MnemonicList.InstructionWhitelist.Any(x => x == instruction.Mnemonic.Name)) continue;
+                    if (MnemonicList.BeginEndInstructions.Any(x => x.Name == instruction.Mnemonic.Name)) continue;
                     var instructionParameter = (string) instruction.Parameter;
                     var splitParameter = instructionParameter?.Split(',');
                     // indexed mode
@@ -140,12 +147,13 @@ namespace SICCSharp.Extensions
                 }
 
                 // print overall
-                var summaryBuilder = new StringBuilder(Environment.NewLine);
+                var summaryBuilder = new StringBuilder();
                 foreach (var instruction in instructionList)
                 {
-                    summaryBuilder.Append(MnemonicList.InstructionWhitelist.All(x => x != instruction.Mnemonic.Name)
-                        ? instruction.MemoryLocation
-                        : TabChar.ToString());
+                    // check if it's an instruction such as START or END
+                    // if yes, we don't pop in the memory location string
+                    if (MnemonicList.BeginEndInstructions.All(x => x.Name != instruction.Mnemonic.Name))
+                        summaryBuilder.Append(instruction.MemoryLocation);
 
                     summaryBuilder.Append(TabChar);
                     if (!string.IsNullOrEmpty(instruction.Label)) summaryBuilder.Append(instruction.Label);
@@ -163,76 +171,185 @@ namespace SICCSharp.Extensions
                     summaryBuilder.AppendLine();
                 }
 
-                Log.Information(summaryBuilder.ToString());
+                // get target file name for outputting the files
+                var targetFileName = Path.GetFileNameWithoutExtension(input);
 
                 // write ASM output inc. object code and location table
-                var asmOutput = Path.Combine(output, "output.txt");
+                Log.Information(summaryBuilder.ToString());
+                var asmOutput = Path.Combine(output, $"{targetFileName}.txt");
                 await File.WriteAllTextAsync(asmOutput, summaryBuilder.ToString());
+                Log.Information("Saved ASM output to {asmOutput}.", asmOutput);
 
                 // compile object program
-                Log.Information(CompileObjectProgram(instructionList));
-
-                Log.Information("Saved ASM output to {asmOutput}", asmOutput);
+                var objectProgram = CompileObjectProgram(instructionList);
+                Log.Information(objectProgram);
+                var objectProgramOutput = Path.Combine(output, $"{targetFileName}.obj");
+                await File.WriteAllTextAsync(objectProgramOutput, objectProgram);
+                Log.Information("Saved object program output to {objectProgramOutput}.", objectProgramOutput);
             }
         }
 
+        /// <summary>
+        ///     Compiles the complete object program with given instructions.
+        /// </summary>
         public static string CompileObjectProgram(IEnumerable<Instruction> instructions)
         {
             using (LogContext.PushProperty("Method", GetMethodName()))
             {
                 // conditional checks
                 if (instructions == null) throw new ArgumentNullException(nameof(instructions));
-                var orderedInstructions = instructions.OrderBy(x => x.LineCount).ToList();
-                if (!orderedInstructions.Any()) throw new InvalidOperationException("Instruction size zero.");
+                var orderedInstructions = instructions.OrderBy(x => x.LineCount);
+                if (!orderedInstructions.Any())
+                    throw new ArgumentOutOfRangeException(nameof(instructions),
+                        "Compiler error: instruction size zero.");
+                if (orderedInstructions.All(x => string.IsNullOrEmpty(x.MemoryLocation)))
+                    throw new InvalidOperationException(
+                        "Compiler error: an attempt was made to compile the object program, but none of the instructions contain a valid memory address.");
 
                 // init builder
                 var objectProgramBuilder = new StringBuilder();
 
                 // get header name; otherwise default to PROG
-                var firstInstruction = orderedInstructions.FirstOrDefault();
-                var lastInstruction = orderedInstructions.LastOrDefault();
-                var headerName = firstInstruction?.Mnemonic.Name == "START" ? firstInstruction.Label : "PROG";
-                objectProgramBuilder.Append($"H^{headerName}");
+                var firstInstruction =
+                    orderedInstructions.FirstOrDefault(x => x.Mnemonic.Name == MnemonicList.StartInstruction.Name) ??
+                    orderedInstructions.FirstOrDefault();
+                var lastInstruction =
+                    orderedInstructions.LastOrDefault(x => x.Mnemonic.Name == MnemonicList.EndInstruction.Name) ??
+                    orderedInstructions.LastOrDefault();
+                objectProgramBuilder.Append(BuildHeaderRecord(firstInstruction, lastInstruction));
 
-                // get first line and last line to get total memory content
-                objectProgramBuilder.Append($"^{FormatHexToLength(firstInstruction?.MemoryLocation, 6)}");
-                objectProgramBuilder.Append(
-                    $"^{FormatHexToLength(MathHelper.SubHex(lastInstruction?.MemoryLocation, firstInstruction?.MemoryLocation), 6)}");
-
-                var bufferBuilder = new StringBuilder();
                 var commandInstructions = new List<Instruction>();
                 var symbolInstructions = new List<Instruction>();
                 foreach (var instruction in orderedInstructions)
-                {
-                    if (MnemonicList.Instructions.Any(x => x.OpCode == instruction.Mnemonic.OpCode))
+                    if (MnemonicList.StandardInstructions.Any(x => x.OpCode == instruction.Mnemonic.OpCode) &&
+                        MnemonicList.BeginEndInstructions.All(x => x.Name != instruction.Mnemonic.Name))
                         commandInstructions.Add(instruction);
-                    else if (MnemonicList.DeclarationInstructions.Any(x => x.Name == instruction.Mnemonic.Name))
+                    else if (MnemonicList.SymbolInstructions.Any(x => x.Name == instruction.Mnemonic.Name))
                         symbolInstructions.Add(instruction);
-                }
 
+                objectProgramBuilder.Append(BuildTextRecord(commandInstructions));
+                objectProgramBuilder.Append(BuildTextRecord(symbolInstructions));
 
+                objectProgramBuilder.AppendLine();
+                objectProgramBuilder.AppendLine(BuildEndRecord(orderedInstructions));
 
                 return objectProgramBuilder.ToString();
             }
         }
 
+        /// <summary>
+        ///     Builds the header record for an object program.
+        /// </summary>
+        public static string BuildHeaderRecord(Instruction startInstruction, Instruction endInstruction)
+        {
+            if (startInstruction.Mnemonic.Name != MnemonicList.StartInstruction.Name)
+                throw new ArgumentException("Start instruction given in head record builder is not valid.",
+                    nameof(startInstruction));
+            if (endInstruction.Mnemonic.Name != MnemonicList.EndInstruction.Name)
+                throw new ArgumentException("End instruction given in head record builder is not valid.",
+                    nameof(endInstruction));
+
+            var recordBuilder = new StringBuilder("H^");
+            // fallback to default header name if instruction label does not exist
+            recordBuilder.Append(string.IsNullOrEmpty(startInstruction.Label) ? "PROG" : startInstruction.Label);
+            recordBuilder.Append('^');
+            recordBuilder.Append(FormatHexToLength(startInstruction.MemoryLocation, 6));
+            recordBuilder.Append('^');
+            var programSize = MathHelper.SubHex(endInstruction.MemoryLocation, startInstruction.MemoryLocation);
+            recordBuilder.Append(FormatHexToLength(programSize, 6));
+
+            return recordBuilder.ToString();
+        }
+
+        /// <summary>
+        ///     Builds the text record for an object program.
+        /// </summary>
+        public static string BuildTextRecord(IEnumerable<Instruction> instructions)
+        {
+            var bufferBuilder = new StringBuilder();
+            foreach (var chunkedInstructions in instructions.Chunk(8))
+            {
+                var instructionCount = 0;
+                // ToList to avoid multiple enumeration
+                var chunkedInstructionsList =
+                    chunkedInstructions.Where(x => !string.IsNullOrWhiteSpace(x.OpCode)).ToList();
+                var chunkedInstructionsLength =
+                    string.Join("", chunkedInstructionsList.Select(x => x.OpCode)).Length / 2;
+                foreach (var chunkedInstruction in chunkedInstructionsList)
+                {
+                    if (instructionCount == 0)
+                    {
+                        bufferBuilder.AppendLine();
+                        bufferBuilder.Append("T^");
+                        bufferBuilder.Append(FormatHexToLength(chunkedInstruction.MemoryLocation, 6));
+                        bufferBuilder.Append('^');
+                        bufferBuilder.Append(FormatHexToLength(chunkedInstructionsLength.ToString("X"), 2));
+                        bufferBuilder.Append('^');
+                    }
+
+                    bufferBuilder.Append(FormatHexToLength(chunkedInstruction.OpCode, 6));
+                    bufferBuilder.Append('^');
+                    instructionCount++;
+                }
+            }
+
+            return bufferBuilder.ToString();
+        }
+
+        /// <summary>
+        ///     Builds the end record for an object program.
+        /// </summary>
+        public static string BuildEndRecord(IOrderedEnumerable<Instruction> instructions)
+        {
+            if (instructions == null) throw new ArgumentNullException(nameof(instructions));
+            var firstValidInstruction =
+                instructions.FirstOrDefault(x => x.Mnemonic.Name != MnemonicList.StartInstruction.Name);
+            if (firstValidInstruction == null)
+                throw new InvalidOperationException(
+                    "A valid instruction was not given during the build of end record.");
+            var formattedMemoryLocation = FormatHexToLength(firstValidInstruction.MemoryLocation, 6);
+            return $"E^{formattedMemoryLocation}";
+        }
+
+        /// <summary>
+        ///     Gets instructions whose name matches set declaration instructions.
+        /// </summary>
         public static IReadOnlyCollection<Instruction> GetSymbolInstructions(IEnumerable<Instruction> instructions)
-            => instructions.Where(x => MnemonicList.DeclarationInstructions.Any(d => d.Name == x.Mnemonic.Name))
+            => instructions.Where(x => MnemonicList.SymbolInstructions.Any(d => d.Name == x.Mnemonic.Name))
                 .ToImmutableArray();
 
+        /// <summary>
+        ///     Formats the hexadecimal string to comply with the specified length.
+        /// </summary>
+        /// <param name="input">A hexadecimal string.</param>
+        /// <param name="length">The specified length to fit the string in.</param>
+        /// <returns>
+        ///     A padded string if the length of the string is shorter than <paramref name="length" />; otherwise
+        ///     <paramref name="input" />.
+        /// </returns>
         public static string FormatHexToLength(string input, int length)
-            => input.PadLeft(length, '0');
+        {
+            if (input == null) throw new ArgumentNullException(nameof(input));
+            if (!int.TryParse(input, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _))
+                throw new InvalidOperationException("The input string is not a valid hexadecimal string.");
+            return input.Length > length ? input : input.PadLeft(length, '0');
+        }
 
+        /// <summary>
+        ///     Parses the raw string into a strongly-typed <see cref="Instruction" /> class.
+        /// </summary>
+        /// <param name="input"></param>
+        /// <returns></returns>
         public static Instruction ParseInstructions(string input)
         {
             using (LogContext.PushProperty("Method", GetMethodName()))
             {
-                var rawInstruction = input.Split(Delimiter)
+                var rawInstruction = input.Split(Delimiters)
                     .Where(x => !string.IsNullOrWhiteSpace(x))
                     .Select(x => x.Trim())
                     .ToList();
 
-                Log.Verbose("Parsed {Count} instructions from input.", rawInstruction.Count);
+                Log.Verbose("Parsed {Count} instruction entries from input.", rawInstruction.Count);
 
                 string instructionName;
                 Mnemonic mnemonic;
@@ -264,7 +381,8 @@ namespace SICCSharp.Extensions
                             $"Compiler error: SIC instruction count mismatch; see line \"{rawInstruction}\"");
                 }
 
-                if (instruction.Mnemonic.Name == "START") instruction.MemoryLocation = (string) instruction.Parameter;
+                if (instruction.Mnemonic.Name == MnemonicList.StartInstruction.Name)
+                    instruction.MemoryLocation = (string) instruction.Parameter;
 
                 Log.Verbose("Instruction \"{Name}\" successfully parsed.", instruction.Mnemonic.Name);
                 Log.Verbose("----Instruction label: {Label}", instruction.Label);
@@ -275,8 +393,8 @@ namespace SICCSharp.Extensions
         }
 
         public static Mnemonic GetMnemonic(string instructionName)
-            => MnemonicList.Instructions.SingleOrDefault(x => x.Name == instructionName) ??
-               MnemonicList.DeclarationInstructions.SingleOrDefault(x => x.Name == instructionName) ??
+            => MnemonicList.StandardInstructions.SingleOrDefault(x => x.Name == instructionName) ??
+               MnemonicList.SymbolInstructions.SingleOrDefault(x => x.Name == instructionName) ??
                new Mnemonic {Name = instructionName};
     }
 }
