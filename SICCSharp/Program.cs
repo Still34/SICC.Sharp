@@ -10,6 +10,8 @@ namespace SICCSharp
 {
     /// <summary>
     ///     Written for NPTU System Software finals project.
+    ///     This project is not meant for any serious SIC/XE compilation, as you can probably tell by the quality of the source
+    ///     code. Use it to validate your homework at best, and even then, take its result with a grain of salt.
     /// </summary>
     internal class Program
     {
@@ -45,7 +47,8 @@ namespace SICCSharp
                 }
             });
         }
-        public static Logger CreateLoggerOnConfig(bool verbose)
+
+        private static Logger CreateLoggerOnConfig(bool verbose)
         {
             var loggerConfig = new LoggerConfiguration()
                 .Enrich.FromLogContext()
@@ -59,6 +62,5 @@ namespace SICCSharp
 
             return loggerConfig.CreateLogger();
         }
-
     }
 }
