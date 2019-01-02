@@ -2,27 +2,28 @@
 using System.IO;
 using CommandLine;
 using Serilog;
+using Serilog.Core;
 using Serilog.Sinks.SystemConsole.Themes;
 using SICCSharp.Extensions;
 
 namespace SICCSharp
 {
+    /// <summary>
+    ///     Written for NPTU System Software finals project.
+    /// </summary>
     internal class Program
     {
         private static void Main(string[] args)
         {
-            Parser.Default.ParseArguments<LaunchOptions>(args).WithParsed( options =>
+            Parser.Default.ParseArguments<LaunchOptions>(args).WithParsed(options =>
             {
                 try
                 {
-                    var loggerConfig = new LoggerConfiguration()
-                        .Enrich.FromLogContext()
-                        .WriteTo.Console(theme: AnsiConsoleTheme.Code,
-                            outputTemplate:
-                            "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level}] [{Method}] {Message}{NewLine}");
-                    if (options.IsVerbose)
-                        loggerConfig.MinimumLevel.Verbose();
-                    Log.Logger = loggerConfig.CreateLogger();
+                    // init logger
+                    Console.Clear();
+                    Log.Logger = CreateLoggerOnConfig(options.IsVerbose);
+
+                    // basic check against ASM (no complex header check!)
                     if (!File.Exists(options.InputPath) && !Path.GetExtension(options.InputPath).EndsWith("asm"))
                     {
                         Log.Error("{InputPath} is invalid. Did you supply a valid file that has an extension of *.ASM?",
@@ -30,19 +31,34 @@ namespace SICCSharp
                         Environment.Exit(3);
                     }
 
+                    // fallback directory
                     if (string.IsNullOrEmpty(options.OutputPath) || !Directory.Exists(options.OutputPath))
                         options.OutputPath = Directory.GetParent(options.InputPath).FullName;
 
+                    Log.Information("Begin compilation for {inputPath}.", options.InputPath);
                     CompileHelper.CompileAsync(options.InputPath, options.OutputPath).GetAwaiter().GetResult();
-                    Log.Information("Finished compilation... Press any key to exit.");
-                    Console.ReadKey();
+                    Log.Information("Finished compilation...");
                 }
                 catch (Exception e)
                 {
                     Log.Fatal(e, "An exception occurred during compilation.");
-                    Console.ReadKey();
                 }
             });
         }
+        public static Logger CreateLoggerOnConfig(bool verbose)
+        {
+            var loggerConfig = new LoggerConfiguration()
+                .Enrich.FromLogContext()
+                .WriteTo.Console(theme: AnsiConsoleTheme.Code,
+                    outputTemplate:
+                    "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level}] [{Method}]{NewLine}{Message}{NewLine}{Exception}{NewLine}");
+
+            // enable verbose logging
+            if (verbose)
+                loggerConfig.MinimumLevel.Verbose();
+
+            return loggerConfig.CreateLogger();
+        }
+
     }
 }
