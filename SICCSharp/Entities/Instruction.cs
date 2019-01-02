@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace SICCSharp
+﻿namespace SICCSharp.Entities
 {
     public class Instruction
     {

@@ -3,6 +3,7 @@ using System.IO;
 using CommandLine;
 using Serilog;
 using Serilog.Sinks.SystemConsole.Themes;
+using SICCSharp.Extensions;
 
 namespace SICCSharp
 {

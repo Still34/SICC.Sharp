@@ -1,4 +1,4 @@
-﻿namespace SICCSharp
+﻿namespace SICCSharp.Entities
 {
     public class Mnemonic
     {

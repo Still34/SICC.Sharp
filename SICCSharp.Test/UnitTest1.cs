@@ -1,5 +1,6 @@
 using System;
 using SICCSharp;
+using SICCSharp.Extensions;
 using Xunit;
 
 namespace SICCSharp.Test
@@ -9,7 +10,7 @@ namespace SICCSharp.Test
         [Fact]
         public void CalculateLocationOffset()
         {
-            var wordOffset = SICCSharp.MathHelper.CalculateLocationOffset("WORD");
+            var wordOffset = MathHelper.CalculateLocationOffset("WORD");
             Assert.Equal(3, wordOffset);
             var LDXOffset = MathHelper.CalculateLocationOffset("LDX");
             Assert.Equal(3, LDXOffset);
